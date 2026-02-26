@@ -1,0 +1,28 @@
+# Build results
+bin/
+obj/
+out/
+
+# Node modules
+aluminum-app/node_modules/
+
+# IDE
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+
+# Database
+*.db
+*.sqlite
+
+# Logs
+*.log
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Package
+NestGuard-project.zip

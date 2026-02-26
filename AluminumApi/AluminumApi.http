@@ -1,0 +1,6 @@
+@AluminumApi_HostAddress = http://localhost:5074
+
+GET {{AluminumApi_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
