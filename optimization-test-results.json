@@ -1,0 +1,64 @@
+{
+  "timestamp": "2026-02-28T05:27:10.459Z",
+  "totalTests": 4,
+  "results": [
+    {
+      "testIndex": 1,
+      "material": "1060纯铝板|2",
+      "orderCount": 8,
+      "plateCount": 4,
+      "utilization": 75.01,
+      "wasteRate": 10.01,
+      "completedOrders": 8,
+      "productWeight": 32.52,
+      "remnantWeight": 6.5,
+      "wasteWeight": 4.34,
+      "calculateTime": "60ms"
+    },
+    {
+      "testIndex": 2,
+      "material": "5052铝镁合金板|3",
+      "orderCount": 6,
+      "plateCount": 3,
+      "utilization": 53.53,
+      "wasteRate": 10,
+      "completedOrders": 6,
+      "productWeight": 73.16,
+      "remnantWeight": 49.85,
+      "wasteWeight": 13.67,
+      "calculateTime": "4ms"
+    },
+    {
+      "testIndex": 3,
+      "material": "1050纯铝板|1",
+      "orderCount": 12,
+      "plateCount": 3,
+      "utilization": 89.9,
+      "wasteRate": 7.34,
+      "completedOrders": 12,
+      "productWeight": 21.05,
+      "remnantWeight": 0.65,
+      "wasteWeight": 1.72,
+      "calculateTime": "5ms"
+    },
+    {
+      "testIndex": 4,
+      "material": "3003防锈铝板|1.5",
+      "orderCount": 7,
+      "plateCount": 2,
+      "utilization": 46.51,
+      "wasteRate": 23.16,
+      "completedOrders": 7,
+      "productWeight": 20.72,
+      "remnantWeight": 13.51,
+      "wasteWeight": 10.32,
+      "calculateTime": "6ms"
+    }
+  ],
+  "summary": {
+    "avgUtilization": 66.23750000000001,
+    "avgWasteRate": 12.6275,
+    "totalPlatesUsed": 12,
+    "totalCompletedOrders": 33
+  }
+}

@@ -1,0 +1,146 @@
+[
+  {
+    "scenario": 1,
+    "name": "大小零件混合",
+    "material": "1050纯铝板 1mm",
+    "orderIds": [
+      null,
+      null,
+      null
+    ],
+    "inventoryIds": [
+      null
+    ]
+  },
+  {
+    "scenario": 2,
+    "name": "相同尺寸大量需求",
+    "material": "1060纯铝板 2mm",
+    "orderIds": [
+      null
+    ],
+    "inventoryIds": [
+      null
+    ]
+  },
+  {
+    "scenario": 3,
+    "name": "不规则尺寸组合",
+    "material": "3003防锈铝板 1.5mm",
+    "orderIds": [
+      null,
+      null,
+      null,
+      null
+    ],
+    "inventoryIds": [
+      null,
+      null
+    ]
+  },
+  {
+    "scenario": 4,
+    "name": "高厚板测试",
+    "material": "5052铝镁合金板 3mm",
+    "orderIds": [
+      null,
+      null,
+      null
+    ],
+    "inventoryIds": [
+      null
+    ]
+  },
+  {
+    "scenario": 5,
+    "name": "余料利用测试",
+    "material": "1050纯铝板 1mm",
+    "orderIds": [
+      null,
+      null,
+      null
+    ],
+    "inventoryIds": [
+      null
+    ]
+  },
+  {
+    "scenario": 6,
+    "name": "多品种混合-1050",
+    "material": "1050纯铝板 1mm",
+    "orderIds": [
+      null,
+      null,
+      null
+    ],
+    "inventoryIds": [
+      null
+    ]
+  },
+  {
+    "scenario": 7,
+    "name": "多品种混合-1060",
+    "material": "1060纯铝板 2mm",
+    "orderIds": [
+      null,
+      null,
+      null
+    ],
+    "inventoryIds": [
+      null
+    ]
+  },
+  {
+    "scenario": 8,
+    "name": "极端比例零件",
+    "material": "3003防锈铝板 1.5mm",
+    "orderIds": [
+      null,
+      null,
+      null
+    ],
+    "inventoryIds": [
+      null
+    ]
+  },
+  {
+    "scenario": 9,
+    "name": "密集小件",
+    "material": "1050纯铝板 1mm",
+    "orderIds": [
+      null,
+      null,
+      null
+    ],
+    "inventoryIds": [
+      null
+    ]
+  },
+  {
+    "scenario": 10,
+    "name": "大件优先",
+    "material": "5052铝镁合金板 3mm",
+    "orderIds": [
+      null,
+      null,
+      null
+    ],
+    "inventoryIds": [
+      null
+    ]
+  },
+  {
+    "scenario": 11,
+    "name": "零碎余料利用",
+    "material": "1060纯铝板 2mm",
+    "orderIds": [
+      null,
+      null,
+      null,
+      null
+    ],
+    "inventoryIds": [
+      null
+    ]
+  }
+]

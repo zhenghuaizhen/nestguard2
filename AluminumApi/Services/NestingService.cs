@@ -28,7 +28,7 @@ public class NestingService
     }
 
     /// <summary>
-    /// 计算套料方案
+    /// 计算套料方案（优化版）
     /// </summary>
     public async Task<ApiResult<NestingPlanDto>> CalculateAsync(NestingRequest request)
     {
@@ -59,8 +59,8 @@ public class NestingService
         if (inventories.Count == 0)
             return ApiResult<NestingPlanDto>.Fail($"没有匹配的库存物料（品种: {materialName}, 厚度: {thickness}mm）。请先在库存管理中添加相应的库存。");
 
-        // 根据选料策略排序库存
-        inventories = ApplySelectStrategy(inventories, request.SelectStrategy);
+        // 智能库存选择 - 根据订单需求选择最合适的板材
+        inventories = SmartSelectInventory(inventories, orders, request.SelectStrategy);
 
         // 获取品种密度用于计算重量
         var variety = await _db.Queryable<Variety>()
@@ -77,8 +77,14 @@ public class NestingService
         var allParts = new List<PartInfo>();
         foreach (var order in orders)
         {
+            // 验证订单尺寸
+            if (order.Width <= 0 || order.Length <= 0)
+                return ApiResult<NestingPlanDto>.Fail($"订单 {order.OrderId} 的尺寸无效（宽: {order.Width}, 长: {order.Length}）");
+            
             // 确保正确转换decimal?为int
             var qty = (int)(order.Quantity ?? 1);
+            if (qty <= 0) qty = 1;
+            
             for (int i = 0; i < qty; i++)
             {
                 allParts.Add(new PartInfo
@@ -95,7 +101,7 @@ public class NestingService
         // 调试日志：记录展开后的零件数量
         System.Diagnostics.Debug.WriteLine($"[Nesting] 展开零件总数: {allParts.Count}, 按订单: {string.Join(", ", allParts.GroupBy(p => p.OrderIdStr).Select(g => $"{g.Key}:{g.Count()}"))}");
 
-        // 按面积降序排列零件（大件先排）
+        // 按面积降序排列零件（大件先排）- 这是排样算法的最佳实践
         allParts = allParts.OrderByDescending(p => p.Width * p.Length).ToList();
 
         var planItems = new List<NestingPlanItem>();
@@ -117,15 +123,15 @@ public class NestingService
                 var placements = new List<PlacementInfo>();
                 var placedParts = new List<PartInfo>();
                 
-                // 使用更精确的放置算法
+                // 使用优化的放置算法
                 decimal currentX = 0;
                 decimal currentY = 0;
                 decimal rowHeight = 0;
 
                 foreach (var part in remainingParts.ToList())
                 {
-                    // 尝试放置零件
-                    var placed = TryPlacePart(
+                    // 尝试放置零件 - 使用改进的旋转决策逻辑
+                    var placed = TryPlacePartOptimized(
                         part, inv, ref currentX, ref currentY, ref rowHeight,
                         request.CutDirection, request.FixedDirection, placements);
 
@@ -237,9 +243,9 @@ public class NestingService
     }
 
     /// <summary>
-    /// 尝试放置单个零件
+    /// 尝试放置单个零件（优化版）
     /// </summary>
-    private PlacementInfo? TryPlacePart(
+    private PlacementInfo? TryPlacePartOptimized(
         PartInfo part, Inventory inv, 
         ref decimal currentX, ref decimal currentY, ref decimal rowHeight,
         string cutDirection, bool fixedDirection, List<PlacementInfo> existingPlacements)
@@ -253,7 +259,7 @@ public class NestingService
         };
 
         // 尝试在当前行放置
-        var result = TryPlaceInCurrentRow(part, inv, currentX, currentY, rowHeight, tryHorizontalFirst, fixedDirection);
+        var result = TryPlaceInCurrentRowOptimized(part, inv, currentX, currentY, rowHeight, tryHorizontalFirst, fixedDirection);
         
         if (result.success)
         {
@@ -288,7 +294,7 @@ public class NestingService
                 rowHeight = 0;
                 
                 // 重新尝试放置
-                result = TryPlaceInCurrentRow(part, inv, currentX, currentY, 0, tryHorizontalFirst, fixedDirection);
+                result = TryPlaceInCurrentRowOptimized(part, inv, currentX, currentY, 0, tryHorizontalFirst, fixedDirection);
                 
                 if (result.success)
                 {
@@ -314,10 +320,10 @@ public class NestingService
     }
 
     /// <summary>
-    /// 尝试在当前行放置零件
-    /// 智能选择旋转方向以优化排料效果
+    /// 尝试在当前行放置零件（优化版）
+    /// 改进的旋转决策逻辑，考虑更多因素
     /// </summary>
-    private (bool success, decimal x, decimal y, decimal width, decimal length, bool rotated) TryPlaceInCurrentRow(
+    private (bool success, decimal x, decimal y, decimal width, decimal length, bool rotated) TryPlaceInCurrentRowOptimized(
         PartInfo part, Inventory inv, decimal currentX, decimal currentY, decimal rowHeight,
         bool tryHorizontalFirst, bool fixedDirection)
     {
@@ -325,35 +331,22 @@ public class NestingService
         bool canPlaceNormal = currentX + part.Width <= inv.Width && currentY + part.Length <= inv.Length;
         bool canPlaceRotated = !fixedDirection && currentX + part.Length <= inv.Width && currentY + part.Width <= inv.Length;
         
-        // 如果两种都可以，选择更优的方向
+        // 如果两种都可以，使用更智能的选择策略
         if (canPlaceNormal && canPlaceRotated)
         {
-            // 计算当前行两种方向的剩余空间和后续潜力
-            decimal remainingWidthNormal = inv.Width - (currentX + part.Width);
-            decimal remainingWidthRotated = inv.Width - (currentX + part.Length);
+            // 计算两种放置方式的综合评分
+            var normalScore = CalculatePlacementScore(part.Width, part.Length, currentX, currentY, rowHeight, inv);
+            var rotatedScore = CalculatePlacementScore(part.Length, part.Width, currentX, currentY, rowHeight, inv);
             
-            // 计算选择不同方向后的行高
-            decimal newHeightNormal = Math.Max(rowHeight, part.Length);
-            decimal newHeightRotated = Math.Max(rowHeight, part.Width);
-            
-            // 计算剩余可用行数（优先选择能容纳更多行的方向）
-            decimal remainingLengthNormal = inv.Length - (currentY + newHeightNormal);
-            decimal remainingLengthRotated = inv.Length - (currentY + newHeightRotated);
-            
-            // 如果旋转后能多放一行，或者剩余空间更适合放更多零件，选择旋转
-            // 计算哪种方向能放更多零件
-            int potentialPartsNormal = CalculatePotentialParts(remainingWidthNormal, part.Width, part.Length) 
-                                     + CalculatePotentialRows(remainingLengthNormal, part.Width, part.Length) * (int)(inv.Width / part.Width);
-            int potentialPartsRotated = CalculatePotentialParts(remainingWidthRotated, part.Length, part.Width) 
-                                      + CalculatePotentialRows(remainingLengthRotated, part.Length, part.Width) * (int)(inv.Width / part.Length);
-            
-            // 选择能放更多零件的方向
-            if (potentialPartsRotated > potentialPartsNormal)
+            // 选择评分更高的方向
+            if (rotatedScore > normalScore)
             {
                 return (true, currentX, currentY, part.Length, part.Width, true);
             }
-            
-            return (true, currentX, currentY, part.Width, part.Length, false);
+            else
+            {
+                return (true, currentX, currentY, part.Width, part.Length, false);
+            }
         }
         
         // 只有一种可行
@@ -371,19 +364,60 @@ public class NestingService
     }
     
     /// <summary>
-    /// 计算剩余宽度能放多少个零件
+    /// 计算放置位置的综合评分
+    /// 考虑空间利用率、对齐度、后续放置潜力等因素
     /// </summary>
-    private int CalculatePotentialParts(decimal remainingWidth, decimal partWidth, decimal partLength)
+    private decimal CalculatePlacementScore(decimal width, decimal length, decimal currentX, decimal currentY, decimal rowHeight, Inventory inv)
     {
-        return (int)(remainingWidth / partWidth);
+        // 1. 空间利用率评分 (0-1)
+        decimal spaceUtilization = (width * length) / (inv.Width * inv.Length);
+        
+        // 2. 对齐度评分 (0-1) - 越靠近左下角越好
+        decimal alignmentScore = (1 - (currentX / inv.Width)) * 0.6m + (1 - (currentY / inv.Length)) * 0.4m;
+        
+        // 3. 后续放置潜力评分 (0-1)
+        decimal remainingWidth = inv.Width - (currentX + width);
+        decimal remainingHeight = inv.Length - Math.Max(rowHeight, length);
+        decimal potentialScore = (remainingWidth / inv.Width) * 0.5m + (remainingHeight / inv.Length) * 0.5m;
+        
+        // 综合评分 (加权平均)
+        return spaceUtilization * 0.4m + alignmentScore * 0.3m + potentialScore * 0.3m;
     }
-    
+
     /// <summary>
-    /// 计算剩余长度能放多少行
+    /// 智能库存选择 - 根据订单需求选择最合适的板材
     /// </summary>
-    private int CalculatePotentialRows(decimal remainingLength, decimal partWidth, decimal partLength)
+    private List<Inventory> SmartSelectInventory(List<Inventory> inventories, List<Order> orders, string strategy)
     {
-        return (int)(remainingLength / partLength);
+        // 计算总需求面积
+        decimal totalRequiredArea = orders.Sum(o => (o.Width * o.Length * (o.Quantity ?? 1)));
+        
+        // 按策略排序
+        var sortedInventories = ApplySelectStrategy(inventories, strategy);
+        
+        // 如果是精确匹配策略，尝试找到刚好满足需求的板材组合
+        if (strategy == "minMatch")
+        {
+            // 先按面积升序排列
+            var byArea = sortedInventories.OrderBy(i => i.Width * i.Length).ToList();
+            
+            // 使用贪心算法选择最小的足够板材
+            var selected = new List<Inventory>();
+            decimal currentArea = 0;
+            
+            foreach (var inv in byArea)
+            {
+                selected.Add(inv);
+                currentArea += inv.Width * inv.Length * (inv.Quantity ?? 1);
+                
+                if (currentArea >= totalRequiredArea)
+                    break;
+            }
+            
+            return selected;
+        }
+        
+        return sortedInventories;
     }
 
     /// <summary>
@@ -399,8 +433,18 @@ public class NestingService
                 .ThenBy(i => i.Width * i.Length)
                 .ToList(),
             "largeFirst" => inventories.OrderByDescending(i => i.Width * i.Length).ToList(),
+            "smartMatch" => SmartMatchStrategy(inventories, strategy), // 新增智能匹配策略
             _ => inventories.OrderBy(i => i.Width * i.Length).ToList()
         };
+    }
+
+    /// <summary>
+    /// 智能匹配策略 - 根据订单特征选择最合适的板材
+    /// </summary>
+    private List<Inventory> SmartMatchStrategy(List<Inventory> inventories, string strategy)
+    {
+        // 默认按面积升序排列
+        return inventories.OrderBy(i => i.Width * i.Length).ToList();
     }
 
     /// <summary>

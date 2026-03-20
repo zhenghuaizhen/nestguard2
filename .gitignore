@@ -26,3 +26,6 @@ Thumbs.db
 
 # Package
 NestGuard-project.zip
+*.backup
+node_modules/
+*.log
