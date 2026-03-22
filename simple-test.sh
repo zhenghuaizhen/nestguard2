@@ -17,8 +17,16 @@ echo "✅ 认证成功"
 
 # 清理现有数据
 echo "🧹 清理测试数据..."
-curl -s -X DELETE http://localhost:5000/api/order/batch-delete -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d "[1,2,3,4,5,6,7,8,9,10]"
-curl -s -X DELETE http://localhost:5000/api/inventory/batch-delete -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d "[1,2,3,4,5,6,7,8,9,10]"
+# 删除所有订单
+ORDER_IDS_TO_DEL=$(curl -s -X GET "http://localhost:5000/api/order?page=1&pageSize=1000" -H "Authorization: Bearer $TOKEN" | jq -r '.data.items[].id' | jq -s -c '.')
+if [ "$ORDER_IDS_TO_DEL" != "[]" ] && [ "$ORDER_IDS_TO_DEL" != "null" ]; then
+    curl -s -X POST http://localhost:5000/api/order/batch-delete -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d "$ORDER_IDS_TO_DEL" > /dev/null
+fi
+# 删除所有库存
+INV_IDS_TO_DEL=$(curl -s -X GET "http://localhost:5000/api/inventory?page=1&pageSize=1000" -H "Authorization: Bearer $TOKEN" | jq -r '.data.items[].id')
+for id in $INV_IDS_TO_DEL; do
+    curl -s -X DELETE "http://localhost:5000/api/inventory/$id" -H "Authorization: Bearer $TOKEN" > /dev/null
+done
 
 # 定义测试参数
 MATERIALS=("1050纯铝板" "1060纯铝板" "3003防锈铝板" "5052铝镁合金板" "6061铝镁硅合金板")
@@ -78,11 +86,12 @@ for STRATEGY in "${STRATEGIES[@]}"; do
     for DIRECTION in "${DIRECTIONS[@]}"; do
         echo "   测试策略: $STRATEGY, 方向: $DIRECTION"
         
-        # 获取可套料的订单
-        ORDERS=$(curl -s -X GET http://localhost:5000/api/nesting/available-orders -H "Authorization: Bearer $TOKEN")
-        ORDER_IDS=$(echo "$ORDERS" | jq -r '[.data[] | .id] | join(",")')
+        # 获取可套料的订单并按品种和厚度分组，只取第一组
+        ORDERS_JSON=$(curl -s -X GET http://localhost:5000/api/nesting/available-orders -H "Authorization: Bearer $TOKEN")
+        # 使用jq按materialName和thickness分组，并取第一组的ID
+        ORDER_IDS=$(echo "$ORDERS_JSON" | jq -r '.data | group_by(.materialName, .thickness) | .[0] | [.[].id] | join(",")')
         
-        if [ "$ORDER_IDS" != "" ] && [ "$ORDER_IDS" != "[]" ]; then
+        if [ "$ORDER_IDS" != "" ] && [ "$ORDER_IDS" != "null" ] && [ "$ORDER_IDS" != "[]" ]; then
             # 执行套料计算
             RESULT=$(curl -s -X POST http://localhost:5000/api/nesting/calculate \
               -H "Authorization: Bearer $TOKEN" \
