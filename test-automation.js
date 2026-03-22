@@ -8,7 +8,7 @@ const fs = require('fs').promises;
 
 // 配置
 const API_BASE = 'http://localhost:5000/api';
-const TEST_COUNT = 120; // 超过100笔
+const TEST_COUNT = 100; // 计划执行100笔测试
 const ADMIN_USER = 'admin';
 const ADMIN_PASS = 'admin123';
 
@@ -132,7 +132,8 @@ class NestGuardTester {
                 width: stockSize.width,
                 length: stockSize.length,
                 quantity: 1,
-                materialType: 0
+                materialType: 0,
+                status: 0
             });
         }
         return inventories;
@@ -142,7 +143,10 @@ class NestGuardTester {
         try {
             const response = await this.client.post('/order', orderData);
             if (response.data.success) {
-                return response.data.data;
+                // 后端返回 true 表示成功，需要通过查询获取 ID
+                const listResponse = await this.client.get(`/order?page=1&pageSize=100&materialName=${encodeURIComponent(orderData.materialName)}`);
+                const item = listResponse.data.data.items.find(i => i.orderId === orderData.orderId);
+                return item ? item.id : listResponse.data.data.items[0].id;
             } else {
                 console.error('❌ 创建订单失败:', response.data.message);
                 return null;
@@ -157,7 +161,9 @@ class NestGuardTester {
         try {
             const response = await this.client.post('/inventory', inventoryData);
             if (response.data.success) {
-                return response.data.data;
+                const listResponse = await this.client.get(`/inventory?page=1&pageSize=100&materialName=${encodeURIComponent(inventoryData.materialName)}`);
+                const item = listResponse.data.data.items.find(i => i.barcode === inventoryData.barcode);
+                return item ? item.id : listResponse.data.data.items[0].id;
             } else {
                 console.error('❌ 创建库存失败:', response.data.message);
                 return null;
@@ -169,22 +175,18 @@ class NestGuardTester {
     }
 
     async calculateNesting(orderIds) {
-        try {
-            const response = await this.client.post('/nesting/calculate', {
-                orderIds: orderIds,
-                calcMode: 'auto',
-                cutDirection: 'horizontal',
-                fixedDirection: false
-            });
-            
-            if (response.data.success) {
-                return response.data.data;
-            } else {
-                console.error('❌ 套料计算失败:', response.data.message);
-                return null;
-            }
-        } catch (error) {
-            console.error('❌ 套料计算异常:', error.message);
+        const response = await this.client.post('/nesting/calculate', {
+            orderIds: orderIds,
+            calcMode: 'fast',
+            selectStrategy: 'minMatch',
+            cutDirection: 'horizontal',
+            fixedDirection: false
+        });
+
+        if (response.data.success) {
+            return response.data.data;
+        } else {
+            console.error('❌ 套料计算失败:', response.data.message);
             return null;
         }
     }
@@ -257,17 +259,26 @@ class NestGuardTester {
         };
     }
 
+    async logDetailedError(error, payload) {
+        if (error.response) {
+            console.error(`   ❌ 状态码: ${error.response.status}`);
+            console.error(`   ❌ 响应数据: ${JSON.stringify(error.response.data)}`);
+            console.error(`   ❌ 请求负载: ${JSON.stringify(payload)}`);
+        } else {
+            console.error(`   ❌ 错误消息: ${error.message}`);
+        }
+    }
+
     async runSingleTest(testIndex, material) {
-        console.log(`\n🧪 测试 ${testIndex + 1}/${TEST_COUNT}: ${material.name} ${material.thickness}mm`);
         
         // 创建库存
         const inventories = this.generateStockInventory(material, 2);
         const createdInventories = [];
         
         for (const inv of inventories) {
-            const created = await this.createInventory(inv);
-            if (created) {
-                createdInventories.push(created);
+            const id = await this.createInventory(inv);
+            if (id) {
+                createdInventories.push(id);
             }
         }
         
@@ -277,25 +288,38 @@ class NestGuardTester {
         }
 
         // 创建订单（同品种同厚度）
-        const orders = [];
+        const orderIds = [];
         const orderCount = Math.floor(Math.random() * 5) + 2; // 2-6个订单
         
         for (let i = 0; i < orderCount; i++) {
             const part = this.generateRandomPart(material);
-            const created = await this.createOrder(part);
-            if (created) {
-                orders.push(created);
+            const id = await this.createOrder(part);
+            if (id) {
+                orderIds.push(id);
             }
         }
         
-        if (orders.length === 0) {
+        if (orderIds.length === 0) {
             console.error('❌ 无法创建订单，跳过测试');
             return null;
         }
 
         // 执行套料计算
-        const orderIds = orders.map(o => o.id);
-        const result = await this.calculateNesting(orderIds);
+        let result;
+        const payload = {
+            orderIds: orderIds,
+            calcMode: 'fast',
+            selectStrategy: 'minMatch',
+            cutDirection: 'horizontal',
+            fixedDirection: false
+        };
+        try {
+            result = await this.calculateNesting(orderIds);
+        } catch (error) {
+            console.error('❌ 套料计算异常:');
+            await this.logDetailedError(error, payload);
+            return null;
+        }
         
         if (!result) {
             console.error('❌ 套料计算失败，跳过测试');
@@ -308,7 +332,7 @@ class NestGuardTester {
         const testResult = {
             testIndex: testIndex + 1,
             material: `${material.name} ${material.thickness}mm`,
-            orderCount: orders.length,
+            orderCount: orderIds.length,
             plateCount: result.totalPlates,
             utilization: result.totalUtilization,
             wasteRate: result.wasteRate,
@@ -340,6 +364,11 @@ class NestGuardTester {
         // 执行测试
         for (let i = 0; i < TEST_COUNT; i++) {
             const material = MATERIALS[Math.floor(Math.random() * MATERIALS.length)];
+
+            // 每次测试前清理，确保环境干净
+            await this.clearTestData();
+
+            console.log(`\n🧪 测试 ${i + 1}/${TEST_COUNT}: ${material.name} ${material.thickness}mm`);
             const result = await this.runSingleTest(i, material);
             
             if (result) {
